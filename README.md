@@ -16,6 +16,10 @@ database is required beyond Cloudflare D1.
   admin-assigned name, type, status, uptime %, and history are public. See "Privacy" below.
 - Monitors can be paused from the admin UI: paused monitors are skipped by the checker and show a
   gray "N/A" badge publicly, while their historical numbers stay as they were.
+- **Email alerts** (opt-in per monitor): one email when a monitor transitions down, one when it
+  recovers — never repeated while it stays down, so a regularly-flaky host doesn't flood an inbox.
+  Sent via the Cloudflare Email Routing `send_email` binding; see `CLAUDE.md` for the sender
+  domain/destination setup this depends on.
 
 ## Important limitation: TCP port checks and the Workers plan
 
@@ -97,9 +101,76 @@ down, but it never includes the target/host itself or the configured "expected c
   - **Seed history**: the clock icon opens a dialog to backfill synthetic check history toward a
     target uptime % (useful right after adding a monitor, so it doesn't look brand new). It only
     overwrites data older than 1 hour, leaving real recent checks alone.
-- JSON API: `GET /api/status` (public, redacted — see Privacy), `GET/POST /api/monitors` and
-  `PUT/DELETE /api/monitors/:id` (require the bearer token, full monitor detail), `POST
-  /api/monitors/:id/seed-history` (bearer token, body `{ "uptimePct": number, "days"?: number }`).
+  - **Email alerts**: the "Email alerts on down/recovered" checkbox in the add/edit form opts that
+    monitor into the down/recovered emails described above.
+- JSON API: see [API Reference](#api-reference) below for every endpoint.
+
+## API Reference
+
+All authenticated routes require an `Authorization: Bearer <ADMIN_TOKEN>` header; a missing or
+wrong token gets `401 { "error": "Unauthorized" }`. Unauthenticated routes have no such header.
+
+### Monitor object fields
+
+Shared by the request body of `POST`/`PUT /api/monitors` and the full `Monitor` shape returned by
+the authenticated endpoints below.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `name` | string | required |
+| `type` | `"http"` \| `"tcp"` | required |
+| `target` | string | required — URL for `http`, hostname/IP for `tcp` |
+| `port` | number | required (1-65535) when `type` is `tcp`; ignored for `http` |
+| `interval_minutes` | number | default `5`; how often the cron actually checks this monitor |
+| `timeout_ms` | number | default `10000`; minimum `500` |
+| `expected_status_min` / `expected_status_max` | number | default `200` / `399`; `http` only |
+| `expected_body` | string \| null | optional, `http` only — substring the response body must contain |
+| `tags` | string \| null | comma-separated, e.g. `"prod,eu"` |
+| `enabled` | boolean | default `true`; `false` pauses checking (shows "N/A" publicly) |
+| `email_alerts` | boolean | default `false` — send an email on this monitor's down/recovered transitions, see "Email alerts" below |
+| `sort_order` | number | default `0` |
+
+### Public (unauthenticated)
+
+- **`GET /api/status`** — optional `?tag=<tag>` filter (case-insensitive). Returns an array of
+  redacted `PublicMonitorStatus` objects, the same data backing the `/` status page: `id`, `name`,
+  `type`, `status` (`"up" | "down" | "pending" | "paused"`), `error` (only populated when down),
+  `ignored`, `tags`, `uptime24h`/`uptime7d`/`uptime30d`/`uptime90d`, `avgResponseMs`, and `history`
+  (90 entries of `{ date, total, up, uptime_pct }`). Never includes `target`/`port` — see Privacy.
+
+- **`GET /api/internal/hosts`** — optional `?tag=<tag>` filter. Returns an array of `HostStatus`
+  objects: `id`, `name`, `type`, `host` (`target`, or `target:port` for `tcp`), `status`, `tags`,
+  `lastPing` (last response time in ms), `lastCheckedAt`. Unlike every other route here, this one
+  **does** include the host/target — it exists for a trusted internal dashboard integration, not
+  the public status page. It's intentionally unauthenticated and not linked from any UI, so treat
+  the URL itself as the only thing gating access; don't link to it from anything public-facing.
+
+### Admin (bearer token required)
+
+- **`GET /api/monitors`** — full list of `Monitor` objects (all fields, including `target`/`port`),
+  used to populate the admin edit form.
+
+- **`POST /api/monitors`** — body: the monitor fields table above. Returns the created `Monitor`
+  (`201`), or `400 { "error": "..." }` on a validation failure (missing `name`/`target`, bad
+  `type`, or a `tcp` monitor without a valid `port`).
+
+- **`PUT /api/monitors/:id`** — same body/validation as `POST`, replaces the monitor's fields.
+  Returns the updated `Monitor`, or `404 { "error": "Not found" }`.
+
+- **`DELETE /api/monitors/:id`** — deletes the monitor and its check history. Returns `204` with
+  no body.
+
+- **`POST /api/monitors/:id/ignore`** — body `{ "ignored"?: boolean }`. Omitting the field or
+  passing anything other than `false` sets `ignored = true`; this is how the admin UI's "ignore
+  while down" toggle works (acknowledges an outage without needing it to resolve first). Cleared
+  automatically the next time the monitor has a successful check. Returns the updated `Monitor`,
+  or `404`.
+
+- **`POST /api/monitors/:id/seed-history`** — body `{ "uptimePct": number, "days"?: number }`
+  (`days` defaults to 90, clamped to 1-90). Backfills synthetic check history at hourly resolution
+  toward the target uptime %, replacing any existing history older than 1 hour (real recent checks
+  are left alone). Returns `{ "ok": true }`, or `400` if `uptimePct` isn't a number in `[0, 100]`,
+  or `404` if the monitor doesn't exist.
 
 ## Deployment model
 
