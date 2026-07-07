@@ -26,6 +26,20 @@ export interface Env {
 
 const app = new Hono<{ Bindings: Env }>();
 
+function normalizeTags(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const tags = input
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  return tags.length ? tags.join(",") : null;
+}
+
+function filterByTag<T extends { tags: string[] }>(items: T[], tag: string | null): T[] {
+  if (!tag) return items;
+  return items.filter((i) => i.tags.some((t) => t.toLowerCase() === tag));
+}
+
 function validateMonitorInput(body: any): { error: string } | { value: MonitorInput } {
   if (!body || typeof body !== "object") return { error: "Invalid body" };
   if (typeof body.name !== "string" || !body.name.trim()) return { error: "name is required" };
@@ -48,6 +62,7 @@ function validateMonitorInput(body: any): { error: string } | { value: MonitorIn
         body.type === "http" && typeof body.expected_body === "string" && body.expected_body.trim()
           ? body.expected_body.trim()
           : null,
+      tags: normalizeTags(body.tags),
       enabled: body.enabled !== false,
       sort_order: Number.isFinite(body.sort_order) ? body.sort_order : 0,
     },
@@ -55,23 +70,27 @@ function validateMonitorInput(body: any): { error: string } | { value: MonitorIn
 }
 
 app.get("/", async (c) => {
-  const statuses = await getAllMonitorStatuses(c.env.DB);
-  return c.html(renderStatusPage(statuses.map(toPublicStatus)));
+  const tag = c.req.query("tag")?.trim().toLowerCase() || null;
+  const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
+  const filtered = filterByTag(statuses, tag);
+  return c.html(renderStatusPage(filtered, { activeTag: tag, hasAnyMonitors: statuses.length > 0 }));
 });
 
 app.get("/admin", (c) => c.html(renderAdminPage()));
 
 app.get("/api/status", async (c) => {
-  const statuses = await getAllMonitorStatuses(c.env.DB);
-  return c.json(statuses.map(toPublicStatus));
+  const tag = c.req.query("tag")?.trim().toLowerCase() || null;
+  const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
+  return c.json(filterByTag(statuses, tag));
 });
 
 // Unauthenticated on purpose (for a simple internal dashboard fetch), but intentionally not
 // linked from any UI or documented publicly. Unlike /api/status, includes the host/target.
 // Returns only the last recorded check per monitor — no live uptime %/history computation.
 app.get("/api/internal/hosts", async (c) => {
+  const tag = c.req.query("tag")?.trim().toLowerCase() || null;
   const hosts = await getLatestHostStatuses(c.env.DB);
-  return c.json(hosts);
+  return c.json(filterByTag(hosts, tag));
 });
 
 app.get("/api/monitors", requireAdmin, async (c) => {

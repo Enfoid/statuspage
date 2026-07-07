@@ -42,10 +42,26 @@ function historyBar(s: PublicMonitorStatus): string {
   return `<div class="history-bar">${cells}</div>`;
 }
 
-function uptimeLine(s: PublicMonitorStatus): string {
+/** Tags render as plain links to `/?tag=<tag>` so they're shareable/bookmarkable — clicking the
+ * currently active tag links back to `/` to clear the filter. No client-side JS involved. */
+function tagBadges(tags: string[], activeTag: string | null): string {
+  if (tags.length === 0) return "";
+  return tags
+    .map((t) => {
+      const lower = t.toLowerCase();
+      const isActive = activeTag !== null && lower === activeTag;
+      const href = isActive ? "/" : `/?tag=${encodeURIComponent(lower)}`;
+      const cls = isActive ? "text-bg-primary" : "text-bg-secondary";
+      return `<a href="${href}" class="badge rounded-pill ${cls} text-decoration-none">${escapeHtml(t)}</a>`;
+    })
+    .join(" ");
+}
+
+function uptimeLine(s: PublicMonitorStatus, activeTag: string | null): string {
   const fmt = (v: number | null) => (v === null ? "&ndash;" : `${v}%`);
   return `
-    <div class="d-flex gap-3 small text-secondary flex-wrap">
+    <div class="d-flex gap-2 small text-secondary flex-wrap align-items-center">
+      ${tagBadges(s.tags, activeTag)}
       <span>24h: <strong class="text-body">${fmt(s.uptime24h)}</strong></span>
       <span>7d: <strong class="text-body">${fmt(s.uptime7d)}</strong></span>
       <span>30d: <strong class="text-body">${fmt(s.uptime30d)}</strong></span>
@@ -54,7 +70,7 @@ function uptimeLine(s: PublicMonitorStatus): string {
     </div>`;
 }
 
-function monitorCard(s: PublicMonitorStatus): string {
+function monitorCard(s: PublicMonitorStatus, activeTag: string | null): string {
   return `
     <div class="card mb-3 monitor-card">
       <div class="card-body">
@@ -63,7 +79,7 @@ function monitorCard(s: PublicMonitorStatus): string {
             <h5 class="mb-0">${escapeHtml(s.name)}</h5>
             ${statusBadge(s)}
           </div>
-          ${uptimeLine(s)}
+          ${uptimeLine(s, activeTag)}
         </div>
         ${historyBar(s)}
         <div class="d-flex justify-content-between small text-secondary mt-1">
@@ -79,10 +95,26 @@ function monitorCard(s: PublicMonitorStatus): string {
     </div>`;
 }
 
-export function renderStatusPage(statuses: PublicMonitorStatus[], title = "EnFoid Uptimes"): string {
+export interface StatusPageOptions {
+  title?: string;
+  activeTag?: string | null;
+  hasAnyMonitors?: boolean;
+}
+
+export function renderStatusPage(statuses: PublicMonitorStatus[], opts: StatusPageOptions = {}): string {
+  const { title = "EnFoid Uptimes", activeTag = null, hasAnyMonitors = statuses.length > 0 } = opts;
   const overall = overallStatus(statuses);
   const banner = BANNER[overall];
   const now = new Date().toUTCString();
+
+  let emptyMessage = "";
+  if (statuses.length === 0) {
+    emptyMessage = activeTag
+      ? `<div class="text-center text-secondary py-5">No monitors tagged "${escapeHtml(activeTag)}". <a href="/" class="link-secondary">Clear filter</a></div>`
+      : hasAnyMonitors
+        ? `<div class="text-center text-secondary py-5">No monitors match this filter.</div>`
+        : `<div class="text-center text-secondary py-5">No monitors configured yet.</div>`;
+  }
 
   return `<!doctype html>
 <html lang="en" data-bs-theme="dark">
@@ -116,13 +148,15 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], title = "EnFoi
         </div>
 
         ${
-          statuses.length === 0
-            ? `<div class="text-center text-secondary py-5">No monitors configured yet.</div>`
-            : statuses.map(monitorCard).join("\n")
+          activeTag
+            ? `<div class="text-center small text-secondary mb-3">Filtered by tag <span class="badge rounded-pill text-bg-primary">${escapeHtml(activeTag)}</span> &middot; <a href="/" class="link-secondary">clear</a></div>`
+            : ""
         }
 
+        ${statuses.length === 0 ? emptyMessage : statuses.map((s) => monitorCard(s, activeTag)).join("\n")}
+
         <div class="text-center text-secondary small mt-4">
-          Refreshes automatically &middot; <a href="/" class="link-secondary">reload</a>
+          Refreshes automatically &middot; <a href="${activeTag ? `/?tag=${encodeURIComponent(activeTag)}` : "/"}" class="link-secondary">reload</a>
         </div>
       </div>
     </div>

@@ -44,6 +44,7 @@ export function renderAdminPage(): string {
               <th>Name</th>
               <th>Type</th>
               <th>Target</th>
+              <th>Tags</th>
               <th>Interval</th>
               <th>Enabled</th>
               <th class="text-end">Actions</th>
@@ -84,6 +85,11 @@ export function renderAdminPage(): string {
             <div class="mb-3 d-none" id="fPortWrap">
               <label class="form-label">Port</label>
               <input type="number" class="form-control" id="fPort" placeholder="443">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Tags (comma-separated)</label>
+              <input class="form-control" id="fTags" placeholder="prod, eu, project-x">
+              <div class="form-text">Shown as clickable badges on the public page; clicking one filters to that tag.</div>
             </div>
             <div class="row">
               <div class="col mb-3">
@@ -195,10 +201,13 @@ export function renderAdminPage(): string {
       for (const m of monitors) {
         const tr = document.createElement('tr');
         const targetLabel = m.type === 'tcp' ? (m.target + ':' + m.port) : m.target;
+        const tags = (m.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
+        const tagsHtml = tags.map((t) => '<span class="badge text-bg-secondary me-1">' + escapeHtml(t) + '</span>').join('');
         tr.innerHTML = \`
           <td>\${escapeHtml(m.name)}</td>
           <td><span class="badge text-bg-secondary">\${m.type}</span></td>
           <td class="text-break">\${escapeHtml(targetLabel)}</td>
+          <td>\${tagsHtml}</td>
           <td>\${m.interval_minutes}m</td>
           <td>\${m.enabled ? '<span class="badge text-bg-success">Yes</span>' : '<span class="badge text-bg-secondary">No</span>'}</td>
           <td class="text-end">
@@ -256,6 +265,7 @@ export function renderAdminPage(): string {
       document.getElementById('fStatusMin').value = m.expected_status_min;
       document.getElementById('fStatusMax').value = m.expected_status_max;
       document.getElementById('fExpectedBody').value = m.expected_body || '';
+      document.getElementById('fTags').value = m.tags || '';
       document.getElementById('fEnabled').checked = !!m.enabled;
       updateTypeFields();
       new bootstrap.Modal(document.getElementById('monitorModal')).show();
@@ -306,6 +316,7 @@ export function renderAdminPage(): string {
         expected_status_min: Number(document.getElementById('fStatusMin').value),
         expected_status_max: Number(document.getElementById('fStatusMax').value),
         expected_body: document.getElementById('fExpectedBody').value.trim() || null,
+        tags: document.getElementById('fTags').value,
         enabled: document.getElementById('fEnabled').checked,
       };
       if (id) {

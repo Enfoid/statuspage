@@ -11,6 +11,7 @@ export interface Monitor {
   expected_status_min: number;
   expected_status_max: number;
   expected_body: string | null;
+  tags: string | null; // comma-separated
   enabled: number; // 0 | 1
   sort_order: number;
   created_at: string;
@@ -26,8 +27,17 @@ export interface MonitorInput {
   expected_status_min?: number;
   expected_status_max?: number;
   expected_body?: string | null;
+  tags?: string | null;
   enabled?: boolean;
   sort_order?: number;
+}
+
+export function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
 }
 
 export interface CheckResult {
@@ -72,6 +82,7 @@ export interface PublicMonitorStatus {
   type: MonitorType;
   status: "up" | "down" | "pending" | "paused";
   error: string | null;
+  tags: string[];
   uptime24h: number | null;
   uptime7d: number | null;
   uptime30d: number | null;
@@ -96,6 +107,7 @@ export function toPublicStatus(s: MonitorStatus): PublicMonitorStatus {
     type: s.monitor.type,
     status,
     error: status === "down" ? s.latest!.error : null,
+    tags: parseTags(s.monitor.tags),
     uptime24h: s.uptime24h,
     uptime7d: s.uptime7d,
     uptime30d: s.uptime30d,
@@ -116,6 +128,7 @@ export interface HostStatus {
   type: MonitorType;
   host: string;
   status: LiveStatus;
+  tags: string[];
   lastPing: number | null;
   lastCheckedAt: string | null;
 }
@@ -128,7 +141,7 @@ export async function getLatestHostStatuses(db: D1Database): Promise<HostStatus[
   const { results } = await db
     .prepare(
       `SELECT
-         m.id, m.name, m.type, m.target, m.port, m.enabled,
+         m.id, m.name, m.type, m.target, m.port, m.enabled, m.tags,
          (SELECT success FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_success,
          (SELECT response_time_ms FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_response_time_ms,
          (SELECT checked_at FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_checked_at
@@ -142,6 +155,7 @@ export async function getLatestHostStatuses(db: D1Database): Promise<HostStatus[
       target: string;
       port: number | null;
       enabled: number;
+      tags: string | null;
       latest_success: number | null;
       latest_response_time_ms: number | null;
       latest_checked_at: string | null;
@@ -153,6 +167,7 @@ export async function getLatestHostStatuses(db: D1Database): Promise<HostStatus[
     type: r.type,
     host: r.type === "tcp" ? `${r.target}:${r.port}` : r.target,
     status: deriveStatus(r.enabled, r.latest_success),
+    tags: parseTags(r.tags),
     lastPing: r.latest_response_time_ms,
     lastCheckedAt: r.latest_checked_at,
   }));
@@ -175,8 +190,8 @@ export async function createMonitor(db: D1Database, input: MonitorInput): Promis
   const result = await db
     .prepare(
       `INSERT INTO monitors
-        (name, type, target, port, interval_minutes, timeout_ms, expected_status_min, expected_status_max, expected_body, enabled, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (name, type, target, port, interval_minutes, timeout_ms, expected_status_min, expected_status_max, expected_body, tags, enabled, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING *`
     )
     .bind(
@@ -189,6 +204,7 @@ export async function createMonitor(db: D1Database, input: MonitorInput): Promis
       input.expected_status_min ?? 200,
       input.expected_status_max ?? 399,
       input.expected_body ?? null,
+      input.tags ?? null,
       input.enabled === false ? 0 : 1,
       input.sort_order ?? 0
     )
@@ -206,7 +222,7 @@ export async function updateMonitor(
     .prepare(
       `UPDATE monitors SET
         name = ?, type = ?, target = ?, port = ?, interval_minutes = ?, timeout_ms = ?,
-        expected_status_min = ?, expected_status_max = ?, expected_body = ?, enabled = ?, sort_order = ?
+        expected_status_min = ?, expected_status_max = ?, expected_body = ?, tags = ?, enabled = ?, sort_order = ?
        WHERE id = ?
        RETURNING *`
     )
@@ -220,6 +236,7 @@ export async function updateMonitor(
       input.expected_status_min ?? 200,
       input.expected_status_max ?? 399,
       input.expected_body ?? null,
+      input.tags ?? null,
       input.enabled === false ? 0 : 1,
       input.sort_order ?? 0,
       id
