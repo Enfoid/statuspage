@@ -75,21 +75,25 @@ function validateMonitorInput(body: any): { error: string } | { value: MonitorIn
   };
 }
 
-function siteTitle(c: { req: { url: string } }): string {
-  const hostname = new URL(c.req.url).hostname;
-  return hostname === "status.enfoid.com" ? "EnFoid Uptimes" : "Project Uptimes";
+/** Finds the tag's original casing (as typed in the admin UI) among the filtered monitors,
+ * since the tag query param itself is lowercased for case-insensitive matching. */
+function tagDisplayName<T extends { tags: string[] }>(items: T[], tag: string): string | null {
+  for (const item of items) {
+    const match = item.tags.find((t) => t.toLowerCase() === tag);
+    if (match) return match;
+  }
+  return null;
 }
 
 app.get("/", async (c) => {
   const tag = c.req.query("tag")?.trim().toLowerCase() || null;
   const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
   const filtered = filterByTag(statuses, tag);
-  return c.html(
-    renderStatusPage(filtered, { title: siteTitle(c), activeTag: tag, hasAnyMonitors: statuses.length > 0 })
-  );
+  const title = tag ? `${tagDisplayName(filtered, tag) ?? tag} Uptimes` : "EnFoid Uptimes";
+  return c.html(renderStatusPage(filtered, { title, activeTag: tag, hasAnyMonitors: statuses.length > 0 }));
 });
 
-app.get("/admin", (c) => c.html(renderAdminPage(siteTitle(c))));
+app.get("/admin", (c) => c.html(renderAdminPage()));
 
 app.get("/api/status", async (c) => {
   const tag = c.req.query("tag")?.trim().toLowerCase() || null;

@@ -1,12 +1,12 @@
-import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, BOOTSTRAP_JS, escapeHtml } from "./util";
+import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, BOOTSTRAP_JS } from "./util";
 
-export function renderAdminPage(title = "EnFoid Uptimes"): string {
+export function renderAdminPage(): string {
   return `<!doctype html>
 <html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)} &ndash; Admin</title>
+  <title>EnFoid Uptimes &ndash; Admin</title>
   <link rel="icon" href="https://www.enfoid.com/favicon.ico">
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
   <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
