@@ -8,6 +8,7 @@ import {
   insertCheck,
   listMonitors,
   pruneOldChecks,
+  getLatestHostStatuses,
   seedMonitorHistory,
   toPublicStatus,
   updateMonitor,
@@ -63,6 +64,14 @@ app.get("/admin", (c) => c.html(renderAdminPage()));
 app.get("/api/status", async (c) => {
   const statuses = await getAllMonitorStatuses(c.env.DB);
   return c.json(statuses.map(toPublicStatus));
+});
+
+// Unauthenticated on purpose (for a simple internal dashboard fetch), but intentionally not
+// linked from any UI or documented publicly. Unlike /api/status, includes the host/target.
+// Returns only the last recorded check per monitor — no live uptime %/history computation.
+app.get("/api/internal/hosts", async (c) => {
+  const hosts = await getLatestHostStatuses(c.env.DB);
+  return c.json(hosts);
 });
 
 app.get("/api/monitors", requireAdmin, async (c) => {

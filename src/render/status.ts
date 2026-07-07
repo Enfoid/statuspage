@@ -79,7 +79,7 @@ function monitorCard(s: PublicMonitorStatus): string {
     </div>`;
 }
 
-export function renderStatusPage(statuses: PublicMonitorStatus[], title = "Status"): string {
+export function renderStatusPage(statuses: PublicMonitorStatus[], title = "EnFoid Uptimes"): string {
   const overall = overallStatus(statuses);
   const banner = BANNER[overall];
   const now = new Date().toUTCString();
@@ -90,6 +90,7 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], title = "Statu
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
+  <link rel="icon" href="https://www.enfoid.com/favicon.ico">
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
   <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
   <style>
@@ -98,29 +99,32 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], title = "Statu
     .history-bar { display: flex; gap: 2px; margin-top: .5rem; height: 34px; }
     .history-cell { flex: 1 1 0; border-radius: 2px; min-width: 2px; }
     .monitor-card { border: 1px solid var(--bs-border-color); }
-    .page-wrap { max-width: 860px; }
   </style>
 </head>
 <body>
-  <div class="container page-wrap py-4 py-md-5">
-    <div class="text-center mb-4">
-      <h1 class="h3 mb-1">${escapeHtml(title)}</h1>
-      <div class="text-secondary small">Last updated ${escapeHtml(now)}</div>
-    </div>
+  <div class="container-fluid py-4 py-md-5">
+    <div class="row">
+      <div class="col-12 col-lg-8 offset-lg-2">
+        <div class="text-center mb-4">
+          <h1 class="h3 mb-1">${escapeHtml(title)}</h1>
+          <div class="text-secondary small">Last updated ${escapeHtml(now)}</div>
+        </div>
 
-    <div class="alert alert-${banner.cls} status-banner d-flex align-items-center gap-2 justify-content-center py-3 mb-4" role="status">
-      <i class="bi ${banner.icon} fs-4"></i>
-      <span class="fs-5 fw-semibold">${banner.text}</span>
-    </div>
+        <div class="alert alert-${banner.cls} status-banner d-flex align-items-center gap-2 justify-content-center py-3 mb-4" role="status">
+          <i class="bi ${banner.icon} fs-4"></i>
+          <span class="fs-5 fw-semibold">${banner.text}</span>
+        </div>
 
-    ${
-      statuses.length === 0
-        ? `<div class="text-center text-secondary py-5">No monitors configured yet.</div>`
-        : statuses.map(monitorCard).join("\n")
-    }
+        ${
+          statuses.length === 0
+            ? `<div class="text-center text-secondary py-5">No monitors configured yet.</div>`
+            : statuses.map(monitorCard).join("\n")
+        }
 
-    <div class="text-center text-secondary small mt-4">
-      Refreshes automatically &middot; <a href="/" class="link-secondary">reload</a>
+        <div class="text-center text-secondary small mt-4">
+          Refreshes automatically &middot; <a href="/" class="link-secondary">reload</a>
+        </div>
+      </div>
     </div>
   </div>
 </body>

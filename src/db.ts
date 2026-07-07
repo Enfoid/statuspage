@@ -80,14 +80,16 @@ export interface PublicMonitorStatus {
   history: DailyHistoryEntry[];
 }
 
+type LiveStatus = "up" | "down" | "pending" | "paused";
+
+function deriveStatus(enabled: number, latestSuccess: number | boolean | null | undefined): LiveStatus {
+  if (!enabled) return "paused";
+  if (latestSuccess === null || latestSuccess === undefined) return "pending";
+  return latestSuccess ? "up" : "down";
+}
+
 export function toPublicStatus(s: MonitorStatus): PublicMonitorStatus {
-  const status: PublicMonitorStatus["status"] = !s.monitor.enabled
-    ? "paused"
-    : s.latest === null
-      ? "pending"
-      : s.latest.success
-        ? "up"
-        : "down";
+  const status = deriveStatus(s.monitor.enabled, s.latest?.success);
   return {
     id: s.monitor.id,
     name: s.monitor.name,
@@ -101,6 +103,59 @@ export function toPublicStatus(s: MonitorStatus): PublicMonitorStatus {
     avgResponseMs: s.avgResponseMs,
     history: s.history,
   };
+}
+
+/**
+ * Shape for the unadvertised internal integration endpoint (`/api/internal/hosts`). Unlike
+ * PublicMonitorStatus, this intentionally includes the monitor's host/target — it's meant for
+ * an internal dashboard, not the public status page, so the redaction rules don't apply here.
+ */
+export interface HostStatus {
+  id: number;
+  name: string;
+  type: MonitorType;
+  host: string;
+  status: LiveStatus;
+  lastPing: number | null;
+  lastCheckedAt: string | null;
+}
+
+/**
+ * Just the last recorded check per monitor — one query, no uptime %/history aggregation — since
+ * the internal dashboard this feeds only needs the current/last-known state, not real-time data.
+ */
+export async function getLatestHostStatuses(db: D1Database): Promise<HostStatus[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT
+         m.id, m.name, m.type, m.target, m.port, m.enabled,
+         (SELECT success FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_success,
+         (SELECT response_time_ms FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_response_time_ms,
+         (SELECT checked_at FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_checked_at
+       FROM monitors m
+       ORDER BY m.sort_order ASC, m.id ASC`
+    )
+    .all<{
+      id: number;
+      name: string;
+      type: MonitorType;
+      target: string;
+      port: number | null;
+      enabled: number;
+      latest_success: number | null;
+      latest_response_time_ms: number | null;
+      latest_checked_at: string | null;
+    }>();
+
+  return (results ?? []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    host: r.type === "tcp" ? `${r.target}:${r.port}` : r.target,
+    status: deriveStatus(r.enabled, r.latest_success),
+    lastPing: r.latest_response_time_ms,
+    lastCheckedAt: r.latest_checked_at,
+  }));
 }
 
 const HISTORY_DAYS = 90;

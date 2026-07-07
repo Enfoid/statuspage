@@ -6,7 +6,8 @@ export function renderAdminPage(): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Status Tracker &ndash; Admin</title>
+  <title>EnFoid Uptimes &ndash; Admin</title>
+  <link rel="icon" href="https://www.enfoid.com/favicon.ico">
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
   <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
 </head>
