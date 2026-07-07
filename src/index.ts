@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import {
+  clearIgnoredIfUp,
   createMonitor,
   deleteMonitor,
   getAllMonitorStatuses,
@@ -10,6 +11,7 @@ import {
   pruneOldChecks,
   getLatestHostStatuses,
   seedMonitorHistory,
+  setIgnored,
   toPublicStatus,
   updateMonitor,
   type MonitorInput,
@@ -124,6 +126,16 @@ app.delete("/api/monitors/:id", requireAdmin, async (c) => {
   return c.body(null, 204);
 });
 
+app.post("/api/monitors/:id/ignore", requireAdmin, async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "Invalid id" }, 400);
+  const body = await c.req.json().catch(() => null);
+  const ignored = body?.ignored !== false;
+  const monitor = await setIgnored(c.env.DB, id, ignored);
+  if (!monitor) return c.json({ error: "Not found" }, 404);
+  return c.json(monitor);
+});
+
 app.post("/api/monitors/:id/seed-history", requireAdmin, async (c) => {
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id)) return c.json({ error: "Invalid id" }, 400);
@@ -147,6 +159,7 @@ async function runDueChecks(env: Env): Promise<void> {
     due.map(async (monitor) => {
       const result = await runCheck(monitor);
       await insertCheck(env.DB, monitor.id, result);
+      if (result.success) await clearIgnoredIfUp(env.DB, monitor.id);
     })
   );
   await pruneOldChecks(env.DB);

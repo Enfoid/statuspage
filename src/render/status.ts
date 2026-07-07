@@ -116,6 +116,18 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], opts: StatusPa
         : `<div class="text-center text-secondary py-5">No monitors configured yet.</div>`;
   }
 
+  const troubled = statuses.filter((s) => s.status === "down" && !s.ignored);
+  const rest = statuses.filter((s) => !(s.status === "down" && !s.ignored));
+  const troubleSection =
+    troubled.length > 0
+      ? `<div class="border border-danger rounded-3 p-3 mb-4">
+           <h2 class="h6 text-danger-emphasis mb-3 d-flex align-items-center gap-2">
+             <i class="bi bi-exclamation-triangle-fill"></i> Currently Down
+           </h2>
+           ${troubled.map((s) => monitorCard(s, activeTag)).join("\n")}
+         </div>`
+      : "";
+
   return `<!doctype html>
 <html lang="en" data-bs-theme="dark">
 <head>
@@ -153,7 +165,7 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], opts: StatusPa
             : ""
         }
 
-        ${statuses.length === 0 ? emptyMessage : statuses.map((s) => monitorCard(s, activeTag)).join("\n")}
+        ${statuses.length === 0 ? emptyMessage : troubleSection + rest.map((s) => monitorCard(s, activeTag)).join("\n")}
 
         <div class="text-center text-secondary small mt-4">
           Refreshes automatically &middot; <a href="${activeTag ? `/?tag=${encodeURIComponent(activeTag)}` : "/"}" class="link-secondary">reload</a>

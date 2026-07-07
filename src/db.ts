@@ -13,6 +13,7 @@ export interface Monitor {
   expected_body: string | null;
   tags: string | null; // comma-separated
   enabled: number; // 0 | 1
+  ignored: number; // 0 | 1 — admin-acknowledged while down, cleared automatically on recovery
   sort_order: number;
   created_at: string;
 }
@@ -82,6 +83,7 @@ export interface PublicMonitorStatus {
   type: MonitorType;
   status: "up" | "down" | "pending" | "paused";
   error: string | null;
+  ignored: boolean;
   tags: string[];
   uptime24h: number | null;
   uptime7d: number | null;
@@ -107,6 +109,7 @@ export function toPublicStatus(s: MonitorStatus): PublicMonitorStatus {
     type: s.monitor.type,
     status,
     error: status === "down" ? s.latest!.error : null,
+    ignored: !!s.monitor.ignored,
     tags: parseTags(s.monitor.tags),
     uptime24h: s.uptime24h,
     uptime7d: s.uptime7d,
@@ -246,6 +249,18 @@ export async function updateMonitor(
 
 export async function deleteMonitor(db: D1Database, id: number): Promise<void> {
   await db.prepare("DELETE FROM monitors WHERE id = ?").bind(id).run();
+}
+
+export async function setIgnored(db: D1Database, id: number, ignored: boolean): Promise<Monitor | null> {
+  return db
+    .prepare("UPDATE monitors SET ignored = ? WHERE id = ? RETURNING *")
+    .bind(ignored ? 1 : 0, id)
+    .first<Monitor>();
+}
+
+/** Called after a successful check so a past acknowledgment doesn't linger into the next outage. */
+export async function clearIgnoredIfUp(db: D1Database, id: number): Promise<void> {
+  await db.prepare("UPDATE monitors SET ignored = 0 WHERE id = ? AND ignored = 1").bind(id).run();
 }
 
 export async function insertCheck(

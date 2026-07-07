@@ -204,13 +204,14 @@ export function renderAdminPage(): string {
         const tags = (m.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
         const tagsHtml = tags.map((t) => '<span class="badge text-bg-secondary me-1">' + escapeHtml(t) + '</span>').join('');
         tr.innerHTML = \`
-          <td>\${escapeHtml(m.name)}</td>
+          <td>\${escapeHtml(m.name)} \${m.ignored ? '<span class="badge text-bg-warning">Ignored</span>' : ''}</td>
           <td><span class="badge text-bg-secondary">\${m.type}</span></td>
           <td class="text-break">\${escapeHtml(targetLabel)}</td>
           <td>\${tagsHtml}</td>
           <td>\${m.interval_minutes}m</td>
           <td>\${m.enabled ? '<span class="badge text-bg-success">Yes</span>' : '<span class="badge text-bg-secondary">No</span>'}</td>
           <td class="text-end">
+            <button class="btn btn-sm btn-outline-secondary ignore-btn" data-id="\${m.id}" title="\${m.ignored ? 'Un-ignore' : 'Ignore while down'}"><i class="bi \${m.ignored ? 'bi-eye' : 'bi-eye-slash'}"></i></button>
             <button class="btn btn-sm btn-outline-secondary pause-btn" data-id="\${m.id}" title="\${m.enabled ? 'Pause monitoring' : 'Resume monitoring'}"><i class="bi \${m.enabled ? 'bi-pause-circle' : 'bi-play-circle'}"></i></button>
             <button class="btn btn-sm btn-outline-secondary seed-btn" data-id="\${m.id}" title="Seed history"><i class="bi bi-clock-history"></i></button>
             <button class="btn btn-sm btn-outline-secondary edit-btn" data-id="\${m.id}"><i class="bi bi-pencil"></i></button>
@@ -222,6 +223,7 @@ export function renderAdminPage(): string {
       tbody.querySelectorAll('.delete-btn').forEach((b) => b.addEventListener('click', () => deleteMonitor(Number(b.dataset.id))));
       tbody.querySelectorAll('.seed-btn').forEach((b) => b.addEventListener('click', () => openSeed(Number(b.dataset.id))));
       tbody.querySelectorAll('.pause-btn').forEach((b) => b.addEventListener('click', () => togglePause(Number(b.dataset.id))));
+      tbody.querySelectorAll('.ignore-btn').forEach((b) => b.addEventListener('click', () => toggleIgnored(Number(b.dataset.id))));
     }
 
     function escapeHtml(s) {
@@ -281,6 +283,13 @@ export function renderAdminPage(): string {
       const m = monitors.find((x) => x.id === id);
       if (!m) return;
       await api('/api/monitors/' + id, { method: 'PUT', body: JSON.stringify({ ...m, enabled: !m.enabled }) });
+      await loadMonitors();
+    }
+
+    async function toggleIgnored(id) {
+      const m = monitors.find((x) => x.id === id);
+      if (!m) return;
+      await api('/api/monitors/' + id + '/ignore', { method: 'POST', body: JSON.stringify({ ignored: !m.ignored }) });
       await loadMonitors();
     }
 
