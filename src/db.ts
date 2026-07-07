@@ -133,7 +133,7 @@ export async function getLatestHostStatuses(db: D1Database): Promise<HostStatus[
          (SELECT response_time_ms FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_response_time_ms,
          (SELECT checked_at FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS latest_checked_at
        FROM monitors m
-       ORDER BY m.sort_order ASC, m.id ASC`
+       ORDER BY m.name COLLATE NOCASE ASC`
     )
     .all<{
       id: number;
@@ -162,7 +162,7 @@ const HISTORY_DAYS = 90;
 
 export async function listMonitors(db: D1Database): Promise<Monitor[]> {
   const { results } = await db
-    .prepare("SELECT * FROM monitors ORDER BY sort_order ASC, id ASC")
+    .prepare("SELECT * FROM monitors ORDER BY name COLLATE NOCASE ASC")
     .all<Monitor>();
   return results ?? [];
 }
