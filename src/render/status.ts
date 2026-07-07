@@ -1,12 +1,12 @@
-import type { MonitorStatus } from "../db";
-import { BOOTSTRAP_CSS, escapeHtml } from "./util";
+import type { PublicMonitorStatus } from "../db";
+import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, escapeHtml } from "./util";
 
 type OverallStatus = "operational" | "degraded" | "outage" | "unknown";
 
-function overallStatus(statuses: MonitorStatus[]): OverallStatus {
-  const withData = statuses.filter((s) => s.latest !== null);
+function overallStatus(statuses: PublicMonitorStatus[]): OverallStatus {
+  const withData = statuses.filter((s) => s.status === "up" || s.status === "down");
   if (withData.length === 0) return "unknown";
-  const down = withData.filter((s) => !s.latest!.success).length;
+  const down = withData.filter((s) => s.status === "down").length;
   if (down === 0) return "operational";
   if (down === withData.length) return "outage";
   return "degraded";
@@ -19,14 +19,15 @@ const BANNER: Record<OverallStatus, { cls: string; icon: string; text: string }>
   unknown: { cls: "secondary", icon: "bi-question-circle-fill", text: "Status Unknown" },
 };
 
-function statusBadge(s: MonitorStatus): string {
-  if (!s.latest) return `<span class="badge rounded-pill text-bg-secondary">No data</span>`;
-  return s.latest.success
+function statusBadge(s: PublicMonitorStatus): string {
+  if (s.status === "paused") return `<span class="badge rounded-pill text-bg-secondary">N/A</span>`;
+  if (s.status === "pending") return `<span class="badge rounded-pill text-bg-secondary">No data</span>`;
+  return s.status === "up"
     ? `<span class="badge rounded-pill text-bg-success">Up</span>`
     : `<span class="badge rounded-pill text-bg-danger">Down</span>`;
 }
 
-function historyBar(s: MonitorStatus): string {
+function historyBar(s: PublicMonitorStatus): string {
   const cells = s.history
     .map((day) => {
       let cls = "bg-secondary-subtle";
@@ -41,12 +42,7 @@ function historyBar(s: MonitorStatus): string {
   return `<div class="history-bar">${cells}</div>`;
 }
 
-function targetLabel(s: MonitorStatus): string {
-  const m = s.monitor;
-  return m.type === "http" ? m.target : `${m.target}:${m.port}`;
-}
-
-function uptimeLine(s: MonitorStatus): string {
+function uptimeLine(s: PublicMonitorStatus): string {
   const fmt = (v: number | null) => (v === null ? "&ndash;" : `${v}%`);
   return `
     <div class="d-flex gap-3 small text-secondary flex-wrap">
@@ -58,17 +54,14 @@ function uptimeLine(s: MonitorStatus): string {
     </div>`;
 }
 
-function monitorCard(s: MonitorStatus): string {
+function monitorCard(s: PublicMonitorStatus): string {
   return `
     <div class="card mb-3 monitor-card">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-          <div>
-            <div class="d-flex align-items-center gap-2">
-              <h5 class="mb-0">${escapeHtml(s.monitor.name)}</h5>
-              ${statusBadge(s)}
-            </div>
-            <div class="text-secondary small">${escapeHtml(targetLabel(s))}</div>
+          <div class="d-flex align-items-center gap-2">
+            <h5 class="mb-0">${escapeHtml(s.name)}</h5>
+            ${statusBadge(s)}
           </div>
           ${uptimeLine(s)}
         </div>
@@ -78,33 +71,33 @@ function monitorCard(s: MonitorStatus): string {
           <span>Today</span>
         </div>
         ${
-          s.latest && !s.latest.success && s.latest.error
-            ? `<div class="small text-danger mt-1">${escapeHtml(s.latest.error)}</div>`
+          s.status === "down" && s.error
+            ? `<div class="small text-danger mt-1">${escapeHtml(s.error)}</div>`
             : ""
         }
       </div>
     </div>`;
 }
 
-export function renderStatusPage(statuses: MonitorStatus[], title = "Status"): string {
+export function renderStatusPage(statuses: PublicMonitorStatus[], title = "Status"): string {
   const overall = overallStatus(statuses);
   const banner = BANNER[overall];
   const now = new Date().toUTCString();
 
   return `<!doctype html>
-<html lang="en" data-bs-theme="auto">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
   <style>
     body { background-color: var(--bs-tertiary-bg); }
     .status-banner { border-radius: .75rem; }
     .history-bar { display: flex; gap: 2px; margin-top: .5rem; height: 34px; }
     .history-cell { flex: 1 1 0; border-radius: 2px; min-width: 2px; }
-    .monitor-card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .monitor-card { border: 1px solid var(--bs-border-color); }
     .page-wrap { max-width: 860px; }
   </style>
 </head>

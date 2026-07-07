@@ -4,9 +4,12 @@ import {
   deleteMonitor,
   getAllMonitorStatuses,
   getDueMonitors,
+  getMonitor,
   insertCheck,
   listMonitors,
   pruneOldChecks,
+  seedMonitorHistory,
+  toPublicStatus,
   updateMonitor,
   type MonitorInput,
 } from "./db";
@@ -40,6 +43,10 @@ function validateMonitorInput(body: any): { error: string } | { value: MonitorIn
       timeout_ms: Number.isFinite(body.timeout_ms) && body.timeout_ms >= 500 ? body.timeout_ms : 10000,
       expected_status_min: Number.isFinite(body.expected_status_min) ? body.expected_status_min : 200,
       expected_status_max: Number.isFinite(body.expected_status_max) ? body.expected_status_max : 399,
+      expected_body:
+        body.type === "http" && typeof body.expected_body === "string" && body.expected_body.trim()
+          ? body.expected_body.trim()
+          : null,
       enabled: body.enabled !== false,
       sort_order: Number.isFinite(body.sort_order) ? body.sort_order : 0,
     },
@@ -48,14 +55,14 @@ function validateMonitorInput(body: any): { error: string } | { value: MonitorIn
 
 app.get("/", async (c) => {
   const statuses = await getAllMonitorStatuses(c.env.DB);
-  return c.html(renderStatusPage(statuses));
+  return c.html(renderStatusPage(statuses.map(toPublicStatus)));
 });
 
 app.get("/admin", (c) => c.html(renderAdminPage()));
 
 app.get("/api/status", async (c) => {
   const statuses = await getAllMonitorStatuses(c.env.DB);
-  return c.json(statuses);
+  return c.json(statuses.map(toPublicStatus));
 });
 
 app.get("/api/monitors", requireAdmin, async (c) => {
@@ -87,6 +94,23 @@ app.delete("/api/monitors/:id", requireAdmin, async (c) => {
   if (!Number.isInteger(id)) return c.json({ error: "Invalid id" }, 400);
   await deleteMonitor(c.env.DB, id);
   return c.body(null, 204);
+});
+
+app.post("/api/monitors/:id/seed-history", requireAdmin, async (c) => {
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id)) return c.json({ error: "Invalid id" }, 400);
+  const monitor = await getMonitor(c.env.DB, id);
+  if (!monitor) return c.json({ error: "Not found" }, 404);
+
+  const body = await c.req.json().catch(() => null);
+  const uptimePct = Number(body?.uptimePct);
+  if (!Number.isFinite(uptimePct) || uptimePct < 0 || uptimePct > 100) {
+    return c.json({ error: "uptimePct must be a number between 0 and 100" }, 400);
+  }
+  const days = Math.min(90, Math.max(1, Math.round(Number(body?.days) || 90)));
+
+  await seedMonitorHistory(c.env.DB, monitor, uptimePct, days);
+  return c.json({ ok: true });
 });
 
 async function runDueChecks(env: Env): Promise<void> {

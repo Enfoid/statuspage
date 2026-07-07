@@ -11,7 +11,7 @@ crons = ["*/1 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "statuspage-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "afa707d8-cfdd-448c-9989-ca90f64fc0fe"
 
 # Set with: wrangler secret put ADMIN_TOKEN
 # (do not put the real token here)

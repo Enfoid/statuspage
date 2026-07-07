@@ -10,6 +10,7 @@ export interface Monitor {
   timeout_ms: number;
   expected_status_min: number;
   expected_status_max: number;
+  expected_body: string | null;
   enabled: number; // 0 | 1
   sort_order: number;
   created_at: string;
@@ -24,6 +25,7 @@ export interface MonitorInput {
   timeout_ms?: number;
   expected_status_min?: number;
   expected_status_max?: number;
+  expected_body?: string | null;
   enabled?: boolean;
   sort_order?: number;
 }
@@ -59,6 +61,48 @@ export interface MonitorStatus {
   history: DailyHistoryEntry[];
 }
 
+/**
+ * Shape safe to expose on the public status page / public API. Deliberately omits the
+ * monitor's target/port (internal hostnames, IPs, non-public URLs) and raw error text,
+ * which can leak details about infrastructure that isn't meant to be public.
+ */
+export interface PublicMonitorStatus {
+  id: number;
+  name: string;
+  type: MonitorType;
+  status: "up" | "down" | "pending" | "paused";
+  error: string | null;
+  uptime24h: number | null;
+  uptime7d: number | null;
+  uptime30d: number | null;
+  uptime90d: number | null;
+  avgResponseMs: number | null;
+  history: DailyHistoryEntry[];
+}
+
+export function toPublicStatus(s: MonitorStatus): PublicMonitorStatus {
+  const status: PublicMonitorStatus["status"] = !s.monitor.enabled
+    ? "paused"
+    : s.latest === null
+      ? "pending"
+      : s.latest.success
+        ? "up"
+        : "down";
+  return {
+    id: s.monitor.id,
+    name: s.monitor.name,
+    type: s.monitor.type,
+    status,
+    error: status === "down" ? s.latest!.error : null,
+    uptime24h: s.uptime24h,
+    uptime7d: s.uptime7d,
+    uptime30d: s.uptime30d,
+    uptime90d: s.uptime90d,
+    avgResponseMs: s.avgResponseMs,
+    history: s.history,
+  };
+}
+
 const HISTORY_DAYS = 90;
 
 export async function listMonitors(db: D1Database): Promise<Monitor[]> {
@@ -76,8 +120,8 @@ export async function createMonitor(db: D1Database, input: MonitorInput): Promis
   const result = await db
     .prepare(
       `INSERT INTO monitors
-        (name, type, target, port, interval_minutes, timeout_ms, expected_status_min, expected_status_max, enabled, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (name, type, target, port, interval_minutes, timeout_ms, expected_status_min, expected_status_max, expected_body, enabled, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING *`
     )
     .bind(
@@ -89,6 +133,7 @@ export async function createMonitor(db: D1Database, input: MonitorInput): Promis
       input.timeout_ms ?? 10000,
       input.expected_status_min ?? 200,
       input.expected_status_max ?? 399,
+      input.expected_body ?? null,
       input.enabled === false ? 0 : 1,
       input.sort_order ?? 0
     )
@@ -106,7 +151,7 @@ export async function updateMonitor(
     .prepare(
       `UPDATE monitors SET
         name = ?, type = ?, target = ?, port = ?, interval_minutes = ?, timeout_ms = ?,
-        expected_status_min = ?, expected_status_max = ?, enabled = ?, sort_order = ?
+        expected_status_min = ?, expected_status_max = ?, expected_body = ?, enabled = ?, sort_order = ?
        WHERE id = ?
        RETURNING *`
     )
@@ -119,6 +164,7 @@ export async function updateMonitor(
       input.timeout_ms ?? 10000,
       input.expected_status_min ?? 200,
       input.expected_status_max ?? 399,
+      input.expected_body ?? null,
       input.enabled === false ? 0 : 1,
       input.sort_order ?? 0,
       id
@@ -276,4 +322,80 @@ export async function getMonitorStatus(db: D1Database, monitor: Monitor): Promis
 export async function getAllMonitorStatuses(db: D1Database): Promise<MonitorStatus[]> {
   const monitors = await listMonitors(db);
   return Promise.all(monitors.map((m) => getMonitorStatus(db, m)));
+}
+
+/** Groups `downTotal` failing checks into a handful of contiguous outage windows within
+ * [0, total) rather than scattering them randomly, so seeded history reads as a few
+ * plausible incidents instead of noise. */
+function pickOutageSlots(total: number, downTotal: number): Set<number> {
+  const down = new Set<number>();
+  if (downTotal <= 0 || total <= 0) return down;
+  let remaining = Math.min(downTotal, total);
+  const maxIncidents = Math.max(1, Math.min(4, Math.floor(remaining / 2) || 1));
+  const incidents = 1 + Math.floor(Math.random() * maxIncidents);
+  let left = incidents;
+  while (left > 0 && remaining > 0) {
+    const size = left === 1 ? remaining : Math.max(1, Math.round(remaining / left));
+    const start = Math.floor(Math.random() * total);
+    for (let j = start; j < Math.min(total, start + size) && down.size < downTotal; j++) {
+      down.add(j);
+    }
+    remaining -= size;
+    left--;
+  }
+  return down;
+}
+
+/**
+ * Backfills synthetic check history for a monitor so it doesn't look brand new, targeting
+ * an overall uptime percentage. Only fills the window ending 1 hour ago, leaving recent
+ * real checks (and anything the live cron produces going forward) untouched.
+ */
+export async function seedMonitorHistory(
+  db: D1Database,
+  monitor: Monitor,
+  uptimePct: number,
+  days: number
+): Promise<void> {
+  const CHECKS_PER_DAY = 24; // hourly resolution is enough for day-level history bars + rolling %
+  const total = days * CHECKS_PER_DAY;
+  const intervalMs = (24 * 60 * 60 * 1000) / CHECKS_PER_DAY;
+  const cutoff = Date.now() - 60 * 60 * 1000;
+
+  await db
+    .prepare(`DELETE FROM checks WHERE monitor_id = ? AND checked_at < datetime('now', '-1 hours')`)
+    .bind(monitor.id)
+    .run();
+
+  const downTotal = Math.round(total * (1 - uptimePct / 100));
+  const downSlots = pickOutageSlots(total, downTotal);
+
+  const statements = [];
+  for (let i = 0; i < total; i++) {
+    const ts = cutoff - (total - i) * intervalMs;
+    const success = !downSlots.has(i);
+    const responseTime = monitor.type === "http"
+      ? Math.round(80 + Math.random() * 220)
+      : Math.round(5 + Math.random() * 40);
+    const statusCode = monitor.type === "http" ? (success ? 200 : Math.random() < 0.5 ? 500 : 503) : null;
+    const error = success
+      ? null
+      : monitor.type === "http"
+        ? `Unexpected status code ${statusCode}`
+        : "Connection timed out";
+    const checkedAt = new Date(ts).toISOString().slice(0, 19).replace("T", " ");
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO checks (monitor_id, checked_at, success, response_time_ms, status_code, error)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .bind(monitor.id, checkedAt, success ? 1 : 0, responseTime, statusCode, error)
+    );
+  }
+
+  const CHUNK = 100;
+  for (let i = 0; i < statements.length; i += CHUNK) {
+    await db.batch(statements.slice(i, i + CHUNK));
+  }
 }

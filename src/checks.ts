@@ -10,14 +10,26 @@ export async function runHttpCheck(monitor: Monitor): Promise<CheckResult> {
       signal: AbortSignal.timeout(monitor.timeout_ms),
       headers: { "User-Agent": "statuspage-worker/1.0" },
     });
-    const elapsed = Date.now() - start;
-    const success =
+    const statusOk =
       response.status >= monitor.expected_status_min && response.status <= monitor.expected_status_max;
+
+    let bodyOk = true;
+    if (monitor.expected_body) {
+      const text = await response.text();
+      bodyOk = text.includes(monitor.expected_body);
+    }
+
+    const elapsed = Date.now() - start;
+    const success = statusOk && bodyOk;
+    let error: string | null = null;
+    if (!statusOk) error = `Unexpected status code ${response.status}`;
+    else if (!bodyOk) error = `Expected content not found in response`;
+
     return {
       success,
       response_time_ms: elapsed,
       status_code: response.status,
-      error: success ? null : `Unexpected status code ${response.status}`,
+      error,
     };
   } catch (err) {
     return {

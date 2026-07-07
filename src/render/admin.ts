@@ -2,7 +2,7 @@ import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, BOOTSTRAP_JS } from "./util";
 
 export function renderAdminPage(): string {
   return `<!doctype html>
-<html lang="en" data-bs-theme="auto">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -104,14 +104,51 @@ export function renderAdminPage(): string {
                 <input type="number" class="form-control" id="fStatusMax" value="399">
               </div>
             </div>
+            <div class="mb-3 d-none" id="fExpectedBodyWrap">
+              <label class="form-label">Expected content (optional)</label>
+              <input class="form-control" id="fExpectedBody" placeholder='e.g. "status":"ok"'>
+              <div class="form-text">If set, the check also fails when this text isn't found in the response body &mdash; catches a 200 that's actually an error page.</div>
+            </div>
             <div class="form-check">
               <input class="form-check-input" type="checkbox" id="fEnabled" checked>
-              <label class="form-check-label" for="fEnabled">Enabled</label>
+              <label class="form-check-label" for="fEnabled">Enabled (uncheck to pause monitoring)</label>
             </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
             <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="seedModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="seedForm">
+          <div class="modal-header">
+            <h5 class="modal-title">Seed history</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="seedMonitorId">
+            <p class="text-secondary small">
+              Backfills synthetic check history so this monitor doesn't look brand new.
+              Real checks from the last hour are kept; anything older in the seeded range is replaced.
+            </p>
+            <div class="mb-3">
+              <label class="form-label">Target uptime %</label>
+              <input type="number" step="0.01" min="0" max="100" class="form-control" id="seedUptime" value="99.9">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Days of history</label>
+              <input type="number" min="1" max="90" class="form-control" id="seedDays" value="90">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Seed history</button>
           </div>
         </form>
       </div>
@@ -164,6 +201,8 @@ export function renderAdminPage(): string {
           <td>\${m.interval_minutes}m</td>
           <td>\${m.enabled ? '<span class="badge text-bg-success">Yes</span>' : '<span class="badge text-bg-secondary">No</span>'}</td>
           <td class="text-end">
+            <button class="btn btn-sm btn-outline-secondary pause-btn" data-id="\${m.id}" title="\${m.enabled ? 'Pause monitoring' : 'Resume monitoring'}"><i class="bi \${m.enabled ? 'bi-pause-circle' : 'bi-play-circle'}"></i></button>
+            <button class="btn btn-sm btn-outline-secondary seed-btn" data-id="\${m.id}" title="Seed history"><i class="bi bi-clock-history"></i></button>
             <button class="btn btn-sm btn-outline-secondary edit-btn" data-id="\${m.id}"><i class="bi bi-pencil"></i></button>
             <button class="btn btn-sm btn-outline-danger delete-btn" data-id="\${m.id}"><i class="bi bi-trash"></i></button>
           </td>\`;
@@ -171,6 +210,8 @@ export function renderAdminPage(): string {
       }
       tbody.querySelectorAll('.edit-btn').forEach((b) => b.addEventListener('click', () => openEdit(Number(b.dataset.id))));
       tbody.querySelectorAll('.delete-btn').forEach((b) => b.addEventListener('click', () => deleteMonitor(Number(b.dataset.id))));
+      tbody.querySelectorAll('.seed-btn').forEach((b) => b.addEventListener('click', () => openSeed(Number(b.dataset.id))));
+      tbody.querySelectorAll('.pause-btn').forEach((b) => b.addEventListener('click', () => togglePause(Number(b.dataset.id))));
     }
 
     function escapeHtml(s) {
@@ -186,6 +227,7 @@ export function renderAdminPage(): string {
       const isTcp = document.getElementById('fType').value === 'tcp';
       document.getElementById('fPortWrap').classList.toggle('d-none', !isTcp);
       document.getElementById('fStatusRangeWrap').classList.toggle('d-none', isTcp);
+      document.getElementById('fExpectedBodyWrap').classList.toggle('d-none', isTcp);
       document.getElementById('fTargetLabel').textContent = isTcp ? 'Hostname / IP' : 'URL';
       document.getElementById('fTarget').placeholder = isTcp ? 'db.internal.example.com' : 'https://example.com';
     }
@@ -212,6 +254,7 @@ export function renderAdminPage(): string {
       document.getElementById('fTimeout').value = m.timeout_ms;
       document.getElementById('fStatusMin').value = m.expected_status_min;
       document.getElementById('fStatusMax').value = m.expected_status_max;
+      document.getElementById('fExpectedBody').value = m.expected_body || '';
       document.getElementById('fEnabled').checked = !!m.enabled;
       updateTypeFields();
       new bootstrap.Modal(document.getElementById('monitorModal')).show();
@@ -222,6 +265,29 @@ export function renderAdminPage(): string {
       await api('/api/monitors/' + id, { method: 'DELETE' });
       await loadMonitors();
     }
+
+    async function togglePause(id) {
+      const m = monitors.find((x) => x.id === id);
+      if (!m) return;
+      await api('/api/monitors/' + id, { method: 'PUT', body: JSON.stringify({ ...m, enabled: !m.enabled }) });
+      await loadMonitors();
+    }
+
+    function openSeed(id) {
+      document.getElementById('seedMonitorId').value = id;
+      new bootstrap.Modal(document.getElementById('seedModal')).show();
+    }
+
+    document.getElementById('seedForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('seedMonitorId').value;
+      const body = {
+        uptimePct: Number(document.getElementById('seedUptime').value),
+        days: Number(document.getElementById('seedDays').value),
+      };
+      await api('/api/monitors/' + id + '/seed-history', { method: 'POST', body: JSON.stringify(body) });
+      bootstrap.Modal.getInstance(document.getElementById('seedModal')).hide();
+    });
 
     document.getElementById('fType').addEventListener('change', updateTypeFields);
     document.getElementById('addBtn').addEventListener('click', openAdd);
@@ -238,6 +304,7 @@ export function renderAdminPage(): string {
         timeout_ms: Number(document.getElementById('fTimeout').value),
         expected_status_min: Number(document.getElementById('fStatusMin').value),
         expected_status_max: Number(document.getElementById('fStatusMax').value),
+        expected_body: document.getElementById('fExpectedBody').value.trim() || null,
         enabled: document.getElementById('fEnabled').checked,
       };
       if (id) {
