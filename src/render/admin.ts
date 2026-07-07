@@ -1,18 +1,20 @@
-import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, BOOTSTRAP_JS } from "./util";
+import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, BOOTSTRAP_JS, escapeHtml } from "./util";
 
-export function renderAdminPage(): string {
+export function renderAdminPage(title = "EnFoid Uptimes"): string {
   return `<!doctype html>
 <html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>EnFoid Uptimes &ndash; Admin</title>
+  <title>${escapeHtml(title)} &ndash; Admin</title>
   <link rel="icon" href="https://www.enfoid.com/favicon.ico">
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
   <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
 </head>
 <body>
-  <div class="container py-4" style="max-width: 1000px;">
+  <div class="container-fluid py-4">
+   <div class="row justify-content-center">
+    <div class="col-12 col-xl-10">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h1 class="h4 mb-0">Monitor Admin</h1>
       <div class="d-flex gap-2">
@@ -55,6 +57,8 @@ export function renderAdminPage(): string {
       </div>
       <div id="emptyState" class="text-secondary text-center py-4 d-none">No monitors yet.</div>
     </div>
+    </div>
+   </div>
   </div>
 
   <div class="modal fade" id="monitorModal" tabindex="-1">
@@ -119,6 +123,11 @@ export function renderAdminPage(): string {
             <div class="form-check">
               <input class="form-check-input" type="checkbox" id="fEnabled" checked>
               <label class="form-check-label" for="fEnabled">Enabled (uncheck to pause monitoring)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="fEmailAlerts">
+              <label class="form-check-label" for="fEmailAlerts">Email alerts on down/recovered</label>
+              <div class="form-text">Sends one email when this monitor goes down and one when it recovers &mdash; not on every failed check, so a monitor that's regularly offline won't flood your inbox.</div>
             </div>
           </div>
           <div class="modal-footer">
@@ -269,6 +278,7 @@ export function renderAdminPage(): string {
       document.getElementById('fExpectedBody').value = m.expected_body || '';
       document.getElementById('fTags').value = m.tags || '';
       document.getElementById('fEnabled').checked = !!m.enabled;
+      document.getElementById('fEmailAlerts').checked = !!m.email_alerts;
       updateTypeFields();
       new bootstrap.Modal(document.getElementById('monitorModal')).show();
     }
@@ -327,6 +337,7 @@ export function renderAdminPage(): string {
         expected_body: document.getElementById('fExpectedBody').value.trim() || null,
         tags: document.getElementById('fTags').value,
         enabled: document.getElementById('fEnabled').checked,
+        email_alerts: document.getElementById('fEmailAlerts').checked,
       };
       if (id) {
         await api('/api/monitors/' + id, { method: 'PUT', body: JSON.stringify(body) });

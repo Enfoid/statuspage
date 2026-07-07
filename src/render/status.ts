@@ -28,7 +28,7 @@ function statusBadge(s: PublicMonitorStatus): string {
 }
 
 function historyBar(s: PublicMonitorStatus): string {
-  const cells = s.history
+  const dayCells = s.history
     .map((day) => {
       let cls = "bg-secondary-subtle";
       let title = `${day.date}: no data`;
@@ -39,7 +39,22 @@ function historyBar(s: PublicMonitorStatus): string {
       return `<div class="history-cell ${cls}" title="${escapeHtml(title)}"></div>`;
     })
     .join("");
-  return `<div class="history-bar">${cells}</div>`;
+
+  const nowCls =
+    s.status === "up" ? "bg-success" : s.status === "down" ? "bg-danger" : "bg-secondary-subtle";
+  const nowTitle =
+    s.status === "up"
+      ? "Now: up"
+      : s.status === "down"
+        ? `Now: down${s.error ? ` (${s.error})` : ""}`
+        : s.status === "paused"
+          ? "Now: paused"
+          : "Now: no data";
+
+  return `<div class="history-bar">
+    <div class="history-days">${dayCells}</div>
+    <div class="history-cell history-now ${nowCls}" title="${escapeHtml(nowTitle)}"></div>
+  </div>`;
 }
 
 /** Tags render as plain links to `/?tag=<tag>` so they're shareable/bookmarkable — clicking the
@@ -140,8 +155,10 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], opts: StatusPa
   <style>
     body { background-color: var(--bs-tertiary-bg); }
     .status-banner { border-radius: .75rem; }
-    .history-bar { display: flex; gap: 2px; margin-top: .5rem; height: 34px; }
+    .history-bar { display: flex; gap: 3px; margin-top: .5rem; height: 34px; }
+    .history-days { display: flex; gap: 2px; flex: 1 1 auto; min-width: 0; }
     .history-cell { flex: 1 1 0; border-radius: 2px; min-width: 2px; }
+    .history-now { flex: 0 0 12px; }
     .monitor-card { border: 1px solid var(--bs-border-color); }
   </style>
 </head>

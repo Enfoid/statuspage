@@ -15,3 +15,8 @@ database_id = "afa707d8-cfdd-448c-9989-ca90f64fc0fe"
 
 # Set with: wrangler secret put ADMIN_TOKEN
 # (do not put the real token here)
+
+# Lets the Worker send down/recovered alert emails via Cloudflare Email Routing.
+# Sender/recipient addresses are hardcoded in src/email.ts.
+[[send_email]]
+name = "EMAIL"

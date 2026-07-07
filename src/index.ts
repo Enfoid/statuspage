@@ -5,6 +5,7 @@ import {
   deleteMonitor,
   getAllMonitorStatuses,
   getDueMonitors,
+  getLastCheckSuccess,
   getMonitor,
   insertCheck,
   listMonitors,
@@ -17,6 +18,7 @@ import {
   type MonitorInput,
 } from "./db";
 import { runCheck } from "./checks";
+import { sendMonitorAlert } from "./email";
 import { requireAdmin } from "./auth";
 import { renderStatusPage } from "./render/status";
 import { renderAdminPage } from "./render/admin";
@@ -24,6 +26,7 @@ import { renderAdminPage } from "./render/admin";
 export interface Env {
   DB: D1Database;
   ADMIN_TOKEN: string;
+  EMAIL: SendEmail;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -66,19 +69,27 @@ function validateMonitorInput(body: any): { error: string } | { value: MonitorIn
           : null,
       tags: normalizeTags(body.tags),
       enabled: body.enabled !== false,
+      email_alerts: body.email_alerts === true,
       sort_order: Number.isFinite(body.sort_order) ? body.sort_order : 0,
     },
   };
+}
+
+function siteTitle(c: { req: { url: string } }): string {
+  const hostname = new URL(c.req.url).hostname;
+  return hostname === "status.enfoid.com" ? "EnFoid Uptimes" : "Project Uptimes";
 }
 
 app.get("/", async (c) => {
   const tag = c.req.query("tag")?.trim().toLowerCase() || null;
   const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
   const filtered = filterByTag(statuses, tag);
-  return c.html(renderStatusPage(filtered, { activeTag: tag, hasAnyMonitors: statuses.length > 0 }));
+  return c.html(
+    renderStatusPage(filtered, { title: siteTitle(c), activeTag: tag, hasAnyMonitors: statuses.length > 0 })
+  );
 });
 
-app.get("/admin", (c) => c.html(renderAdminPage()));
+app.get("/admin", (c) => c.html(renderAdminPage(siteTitle(c))));
 
 app.get("/api/status", async (c) => {
   const tag = c.req.query("tag")?.trim().toLowerCase() || null;
@@ -157,9 +168,20 @@ async function runDueChecks(env: Env): Promise<void> {
   const due = await getDueMonitors(env.DB);
   await Promise.allSettled(
     due.map(async (monitor) => {
+      const previousSuccess = await getLastCheckSuccess(env.DB, monitor.id);
       const result = await runCheck(monitor);
       await insertCheck(env.DB, monitor.id, result);
       if (result.success) await clearIgnoredIfUp(env.DB, monitor.id);
+
+      // Only alert on an actual up/down transition (not every failed check while already down),
+      // and only once the monitor has a prior check to compare against.
+      if (monitor.email_alerts && previousSuccess !== null) {
+        if (previousSuccess && !result.success) {
+          await sendMonitorAlert(env.EMAIL, monitor, "down", result);
+        } else if (!previousSuccess && result.success) {
+          await sendMonitorAlert(env.EMAIL, monitor, "recovered", result);
+        }
+      }
     })
   );
   await pruneOldChecks(env.DB);

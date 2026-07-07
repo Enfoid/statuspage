@@ -1,0 +1,1 @@
+ALTER TABLE monitors ADD COLUMN email_alerts INTEGER NOT NULL DEFAULT 0;

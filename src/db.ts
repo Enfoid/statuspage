@@ -14,6 +14,7 @@ export interface Monitor {
   tags: string | null; // comma-separated
   enabled: number; // 0 | 1
   ignored: number; // 0 | 1 — admin-acknowledged while down, cleared automatically on recovery
+  email_alerts: number; // 0 | 1 — send a down/recovered email for this monitor's status changes
   sort_order: number;
   created_at: string;
 }
@@ -30,6 +31,7 @@ export interface MonitorInput {
   expected_body?: string | null;
   tags?: string | null;
   enabled?: boolean;
+  email_alerts?: boolean;
   sort_order?: number;
 }
 
@@ -193,8 +195,8 @@ export async function createMonitor(db: D1Database, input: MonitorInput): Promis
   const result = await db
     .prepare(
       `INSERT INTO monitors
-        (name, type, target, port, interval_minutes, timeout_ms, expected_status_min, expected_status_max, expected_body, tags, enabled, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (name, type, target, port, interval_minutes, timeout_ms, expected_status_min, expected_status_max, expected_body, tags, enabled, email_alerts, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        RETURNING *`
     )
     .bind(
@@ -209,6 +211,7 @@ export async function createMonitor(db: D1Database, input: MonitorInput): Promis
       input.expected_body ?? null,
       input.tags ?? null,
       input.enabled === false ? 0 : 1,
+      input.email_alerts === true ? 1 : 0,
       input.sort_order ?? 0
     )
     .first<Monitor>();
@@ -225,7 +228,7 @@ export async function updateMonitor(
     .prepare(
       `UPDATE monitors SET
         name = ?, type = ?, target = ?, port = ?, interval_minutes = ?, timeout_ms = ?,
-        expected_status_min = ?, expected_status_max = ?, expected_body = ?, tags = ?, enabled = ?, sort_order = ?
+        expected_status_min = ?, expected_status_max = ?, expected_body = ?, tags = ?, enabled = ?, email_alerts = ?, sort_order = ?
        WHERE id = ?
        RETURNING *`
     )
@@ -241,6 +244,7 @@ export async function updateMonitor(
       input.expected_body ?? null,
       input.tags ?? null,
       input.enabled === false ? 0 : 1,
+      input.email_alerts === true ? 1 : 0,
       input.sort_order ?? 0,
       id
     )
@@ -261,6 +265,15 @@ export async function setIgnored(db: D1Database, id: number, ignored: boolean): 
 /** Called after a successful check so a past acknowledgment doesn't linger into the next outage. */
 export async function clearIgnoredIfUp(db: D1Database, id: number): Promise<void> {
   await db.prepare("UPDATE monitors SET ignored = 0 WHERE id = ? AND ignored = 1").bind(id).run();
+}
+
+/** Success of the most recent check before a new one is recorded, or null if the monitor has never been checked. */
+export async function getLastCheckSuccess(db: D1Database, monitorId: number): Promise<boolean | null> {
+  const row = await db
+    .prepare(`SELECT success FROM checks WHERE monitor_id = ? ORDER BY checked_at DESC LIMIT 1`)
+    .bind(monitorId)
+    .first<{ success: number }>();
+  return row ? !!row.success : null;
 }
 
 export async function insertCheck(
