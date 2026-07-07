@@ -1,0 +1,17 @@
+name = "statuspage"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# Runs monitor checks + prunes old check history every minute.
+[triggers]
+crons = ["*/1 * * * *"]
+
+# Create with: wrangler d1 create statuspage-db
+# Then paste the returned database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "statuspage-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Set with: wrangler secret put ADMIN_TOKEN
+# (do not put the real token here)
