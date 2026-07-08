@@ -4,8 +4,10 @@ import type { CheckResult, Monitor } from "./db";
 // Fixed on purpose - this is an internal alert channel, not a per-monitor/user setting.
 // FROM must be an address on a domain that has Cloudflare Email Routing/Email Service enabled.
 // TO must be a verified destination address on that same Cloudflare account.
-const FROM_EMAIL = "noreply@bitco.one";
-const TO_EMAIL = "nullx8@gmail.com";
+// FROM_NAME is set explicitly because a missing display name is a common spam-score trigger.
+const FROM_NAME = "Statuspage Alerts";
+const FROM_EMAIL = "noreply@defunct.stream";
+const TO_EMAIL = "hello@defunct.stream";
 
 function targetLabel(monitor: Monitor): string {
   return monitor.type === "tcp" ? `${monitor.target}:${monitor.port}` : monitor.target;
@@ -13,7 +15,7 @@ function targetLabel(monitor: Monitor): string {
 
 function buildRawEmail(subject: string, body: string): string {
   return [
-    `From: ${FROM_EMAIL}`,
+    `From: "${FROM_NAME}" <${FROM_EMAIL}>`,
     `To: ${TO_EMAIL}`,
     `Subject: ${subject}`,
     `Date: ${new Date().toUTCString()}`,
