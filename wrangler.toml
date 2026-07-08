@@ -2,6 +2,11 @@ name = "statuspage"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
+# Static files (currently just favicon.ico) served directly by Cloudflare's asset
+# routing ahead of the Worker — no route/binding needed for /favicon.ico to work.
+[assets]
+directory = "./public"
+
 # Runs monitor checks + prunes old check history every minute.
 [triggers]
 crons = ["*/1 * * * *"]

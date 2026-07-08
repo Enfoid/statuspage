@@ -114,6 +114,8 @@ export interface StatusPageOptions {
   title?: string;
   activeTag?: string | null;
   hasAnyMonitors?: boolean;
+  /** Extra stylesheet URL, injected when the request is served on the defunct.stream domain. */
+  extraCss?: string | null;
 }
 
 export function renderStatusPage(statuses: PublicMonitorStatus[], opts: StatusPageOptions = {}): string {
@@ -149,9 +151,10 @@ export function renderStatusPage(statuses: PublicMonitorStatus[], opts: StatusPa
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
-  <link rel="icon" href="https://www.enfoid.com/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
   <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
+  ${opts.extraCss ? `<link rel="stylesheet" href="${opts.extraCss}">` : ""}
   <style>
     body { background-color: var(--bs-tertiary-bg); }
     .status-banner { border-radius: .75rem; }

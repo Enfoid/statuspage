@@ -1,15 +1,16 @@
 import { BOOTSTRAP_CSS, BOOTSTRAP_ICONS_CSS, BOOTSTRAP_JS } from "./util";
 
-export function renderAdminPage(): string {
+export function renderAdminPage(opts: { extraCss?: string | null } = {}): string {
   return `<!doctype html>
 <html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>EnFoid Uptimes &ndash; Admin</title>
-  <link rel="icon" href="https://www.enfoid.com/favicon.ico">
+  <link rel="icon" href="/favicon.ico">
   <link rel="stylesheet" href="${BOOTSTRAP_CSS}">
   <link rel="stylesheet" href="${BOOTSTRAP_ICONS_CSS}">
+  ${opts.extraCss ? `<link rel="stylesheet" href="${opts.extraCss}">` : ""}
 </head>
 <body>
   <div class="container-fluid py-4">

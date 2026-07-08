@@ -85,15 +85,30 @@ function tagDisplayName<T extends { tags: string[] }>(items: T[], tag: string): 
   return null;
 }
 
+// defunct.stream gets an extra branded stylesheet layered on top of the default Bootstrap
+// theme; any other host (e.g. the *.workers.dev domain) renders unstyled beyond Bootstrap.
+const DEFUNCT_STREAM_CSS = "https://defunct.space/assets/style.css";
+function extraCssFor(c: { req: { header(name: string): string | undefined } }): string | null {
+  const host = c.req.header("host") || "";
+  return host === "defunct.stream" || host.endsWith(".defunct.stream") ? DEFUNCT_STREAM_CSS : null;
+}
+
 app.get("/", async (c) => {
   const tag = c.req.query("tag")?.trim().toLowerCase() || null;
   const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
   const filtered = filterByTag(statuses, tag);
   const title = tag ? `${tagDisplayName(filtered, tag) ?? tag} Uptimes` : "EnFoid Uptimes";
-  return c.html(renderStatusPage(filtered, { title, activeTag: tag, hasAnyMonitors: statuses.length > 0 }));
+  return c.html(
+    renderStatusPage(filtered, {
+      title,
+      activeTag: tag,
+      hasAnyMonitors: statuses.length > 0,
+      extraCss: extraCssFor(c),
+    })
+  );
 });
 
-app.get("/admin", (c) => c.html(renderAdminPage()));
+app.get("/admin", (c) => c.html(renderAdminPage({ extraCss: extraCssFor(c) })));
 
 app.get("/api/status", async (c) => {
   const tag = c.req.query("tag")?.trim().toLowerCase() || null;
