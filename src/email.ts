@@ -5,9 +5,10 @@ import type { CheckResult, Monitor } from "./db";
 // FROM must be an address on a domain that has Cloudflare Email Routing/Email Service enabled.
 // TO must be a verified destination address on that same Cloudflare account.
 // FROM_NAME is set explicitly because a missing display name is a common spam-score trigger.
-const FROM_NAME = "Statuspage Alerts";
+const FROM_NAME = "Defunct Uptime-Alert";
 const FROM_EMAIL = "noreply@defunct.stream";
 const TO_EMAIL = "hello@defunct.stream";
+const ADMIN_URL = "https://statuspage.nullx8.workers.dev/admin";
 
 function targetLabel(monitor: Monitor): string {
   return monitor.type === "tcp" ? `${monitor.target}:${monitor.port}` : monitor.target;
@@ -45,6 +46,7 @@ export async function sendMonitorAlert(
   if (result.error) lines.push(`Error: ${result.error}`);
   if (result.response_time_ms != null) lines.push(`Response time: ${result.response_time_ms}ms`);
   lines.push(`Checked at: ${new Date().toISOString()}`);
+  lines.push(``, `Admin: ${ADMIN_URL}`);
 
   const message = new EmailMessage(FROM_EMAIL, TO_EMAIL, buildRawEmail(subject, lines.join("\n")));
   try {

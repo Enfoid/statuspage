@@ -319,16 +319,21 @@ export async function pruneOldChecks(db: D1Database, retentionDays = HISTORY_DAY
     .run();
 }
 
-async function getUptimePct(db: D1Database, monitorId: number, hours: number): Promise<number | null> {
+async function getUptimePct(
+  db: D1Database,
+  monitorId: number,
+  hours: number,
+  anchor: string
+): Promise<number | null> {
   const row = await db
     .prepare(
       `SELECT
          COUNT(*) AS total,
          SUM(success) AS up
        FROM checks
-       WHERE monitor_id = ? AND checked_at >= datetime('now', '-' || ? || ' hours')`
+       WHERE monitor_id = ? AND checked_at >= datetime(?, '-' || ? || ' hours')`
     )
-    .bind(monitorId, hours)
+    .bind(monitorId, anchor, hours)
     .first<{ total: number; up: number | null }>();
   if (!row || row.total === 0) return null;
   return Math.round(((row.up ?? 0) / row.total) * 10000) / 100;
@@ -337,7 +342,8 @@ async function getUptimePct(db: D1Database, monitorId: number, hours: number): P
 async function getDailyHistory(
   db: D1Database,
   monitorId: number,
-  days = HISTORY_DAYS
+  days: number,
+  anchor: string
 ): Promise<DailyHistoryEntry[]> {
   const { results } = await db
     .prepare(
@@ -346,17 +352,17 @@ async function getDailyHistory(
          COUNT(*) AS total,
          SUM(success) AS up
        FROM checks
-       WHERE monitor_id = ? AND checked_at >= datetime('now', '-' || ? || ' days')
+       WHERE monitor_id = ? AND checked_at >= datetime(?, '-' || ? || ' days')
        GROUP BY date(checked_at)`
     )
-    .bind(monitorId, days)
+    .bind(monitorId, anchor, days)
     .all<{ date: string; total: number; up: number }>();
 
   const byDate = new Map((results ?? []).map((r) => [r.date, r]));
   const history: DailyHistoryEntry[] = [];
-  const today = new Date();
+  const referenceDate = anchor === "now" ? new Date() : new Date(`${anchor.replace(" ", "T")}Z`);
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
+    const d = new Date(referenceDate);
     d.setUTCDate(d.getUTCDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
     const row = byDate.get(dateStr);
@@ -371,31 +377,38 @@ async function getDailyHistory(
 }
 
 export async function getMonitorStatus(db: D1Database, monitor: Monitor): Promise<MonitorStatus> {
-  const [latest, uptime24h, uptime7d, uptime30d, uptime90d, history, avgRow] = await Promise.all([
-    db
-      .prepare(
-        `SELECT success, checked_at, response_time_ms, status_code, error
-         FROM checks WHERE monitor_id = ? ORDER BY checked_at DESC LIMIT 1`
-      )
-      .bind(monitor.id)
-      .first<{
-        success: number;
-        checked_at: string;
-        response_time_ms: number | null;
-        status_code: number | null;
-        error: string | null;
-      }>(),
-    getUptimePct(db, monitor.id, 24),
-    getUptimePct(db, monitor.id, 24 * 7),
-    getUptimePct(db, monitor.id, 24 * 30),
-    getUptimePct(db, monitor.id, 24 * 90),
-    getDailyHistory(db, monitor.id, HISTORY_DAYS),
+  const latest = await db
+    .prepare(
+      `SELECT success, checked_at, response_time_ms, status_code, error
+       FROM checks WHERE monitor_id = ? ORDER BY checked_at DESC LIMIT 1`
+    )
+    .bind(monitor.id)
+    .first<{
+      success: number;
+      checked_at: string;
+      response_time_ms: number | null;
+      status_code: number | null;
+      error: string | null;
+    }>();
+
+  // While a monitor is paused, no new checks come in (getDueMonitors skips disabled monitors), so
+  // anchoring these rolling windows on the live clock would slide them past all that history and
+  // show "-" everywhere once the pause outlasts the window. Anchor on the last real check instead,
+  // freezing the stats exactly as they looked the moment before pausing until it's resumed.
+  const anchor = monitor.enabled ? "now" : (latest?.checked_at ?? "now");
+
+  const [uptime24h, uptime7d, uptime30d, uptime90d, history, avgRow] = await Promise.all([
+    getUptimePct(db, monitor.id, 24, anchor),
+    getUptimePct(db, monitor.id, 24 * 7, anchor),
+    getUptimePct(db, monitor.id, 24 * 30, anchor),
+    getUptimePct(db, monitor.id, 24 * 90, anchor),
+    getDailyHistory(db, monitor.id, HISTORY_DAYS, anchor),
     db
       .prepare(
         `SELECT AVG(response_time_ms) AS avg_ms FROM checks
-         WHERE monitor_id = ? AND checked_at >= datetime('now', '-24 hours') AND response_time_ms IS NOT NULL`
+         WHERE monitor_id = ? AND checked_at >= datetime(?, '-24 hours') AND response_time_ms IS NOT NULL`
       )
-      .bind(monitor.id)
+      .bind(monitor.id, anchor)
       .first<{ avg_ms: number | null }>(),
   ]);
 

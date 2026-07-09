@@ -77,10 +77,10 @@ function uptimeLine(s: PublicMonitorStatus, activeTag: string | null): string {
   return `
     <div class="d-flex gap-2 small text-secondary flex-wrap align-items-center">
       ${tagBadges(s.tags, activeTag)}
-      <span>24h: <strong class="text-body">${fmt(s.uptime24h)}</strong></span>
-      <span>7d: <strong class="text-body">${fmt(s.uptime7d)}</strong></span>
-      <span>30d: <strong class="text-body">${fmt(s.uptime30d)}</strong></span>
       <span>90d: <strong class="text-body">${fmt(s.uptime90d)}</strong></span>
+      <span>30d: <strong class="text-body">${fmt(s.uptime30d)}</strong></span>
+      <span>7d: <strong class="text-body">${fmt(s.uptime7d)}</strong></span>
+      <span>24h: <strong class="text-body">${fmt(s.uptime24h)}</strong></span>
       ${s.avgResponseMs !== null ? `<span>Avg response: <strong class="text-body">${s.avgResponseMs}ms</strong></span>` : ""}
     </div>`;
 }
