@@ -5,6 +5,8 @@ This was made for a single worker, but since this may be useful for others its p
 because of the single use-nature, the database, some Names and a handful other things may be hardcoded on some places.
 just fork it, and change the names accordingly and you good to go.
 
+[here are a few notes about the why](https://0x8.in.th/how-a-few-lines-of-code-on-cloudflare-make-paid-uptime-status-monitors-obsolete) and a [example page](https://status.defunct.stream).
+
 ## Claude Sonnet 4.6 was used to deploy
 I could not be arsed to figure out how this works,
 
@@ -14,8 +16,6 @@ However in this specific application, Cloudflare workers come with the unique **
 As long you stay below the limits, where the only true limit to worry about is the CPU time,
 long waiting times and large monitor count can cause some hangups, wich will lead to long CPU times,
 the [batching](https://github.com/Enfoid/statuspage/commit/eb6d042b5d0afda27a7aefbb3cc55f1708c8ff00) fixed most of it, so you should be good for about 50+ Monitors.
-
-Another example page can be found under [https://status.defunct.stream](https://status.defunct.stream)
 
 ## Summary
 Internal uptime/status tracker that runs entirely on Cloudflare Workers (public status page +
