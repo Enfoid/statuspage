@@ -432,9 +432,174 @@ export async function getMonitorStatus(db: D1Database, monitor: Monitor): Promis
   };
 }
 
+interface LatestCheckRow {
+  monitor_id: number;
+  success: number;
+  checked_at: string;
+  response_time_ms: number | null;
+  status_code: number | null;
+  error: string | null;
+}
+
+/** Latest recorded check for every monitor in one pass, instead of one query per monitor. */
+async function getLatestChecksBatch(db: D1Database): Promise<Map<number, LatestCheckRow>> {
+  const { results } = await db
+    .prepare(
+      `SELECT c.monitor_id, c.success, c.checked_at, c.response_time_ms, c.status_code, c.error
+       FROM checks c
+       JOIN (SELECT monitor_id, MAX(id) AS max_id FROM checks GROUP BY monitor_id) latest
+         ON latest.monitor_id = c.monitor_id AND latest.max_id = c.id`
+    )
+    .all<LatestCheckRow>();
+  return new Map((results ?? []).map((r) => [r.monitor_id, r]));
+}
+
+interface UptimeAggregate {
+  uptime24h: number | null;
+  uptime7d: number | null;
+  uptime30d: number | null;
+  uptime90d: number | null;
+  avgResponseMs: number | null;
+}
+
+function pct(up: number | null, total: number | null): number | null {
+  if (!total) return null;
+  return Math.round(((up ?? 0) / total) * 10000) / 100;
+}
+
+/** Uptime %/avg-response for every monitor, anchored on "now", in one pass over `checks`.
+ * Only valid for enabled monitors — paused monitors freeze their anchor on their last check
+ * (see the comment in getMonitorStatus), so they're handled separately by the caller. */
+async function getUptimeAggregatesBatch(db: D1Database): Promise<Map<number, UptimeAggregate>> {
+  const { results } = await db
+    .prepare(
+      `SELECT
+         monitor_id,
+         SUM(CASE WHEN checked_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) AS total_24h,
+         SUM(CASE WHEN checked_at >= datetime('now', '-24 hours') THEN success ELSE 0 END) AS up_24h,
+         SUM(CASE WHEN checked_at >= datetime('now', '-168 hours') THEN 1 ELSE 0 END) AS total_7d,
+         SUM(CASE WHEN checked_at >= datetime('now', '-168 hours') THEN success ELSE 0 END) AS up_7d,
+         SUM(CASE WHEN checked_at >= datetime('now', '-720 hours') THEN 1 ELSE 0 END) AS total_30d,
+         SUM(CASE WHEN checked_at >= datetime('now', '-720 hours') THEN success ELSE 0 END) AS up_30d,
+         SUM(CASE WHEN checked_at >= datetime('now', '-2160 hours') THEN 1 ELSE 0 END) AS total_90d,
+         SUM(CASE WHEN checked_at >= datetime('now', '-2160 hours') THEN success ELSE 0 END) AS up_90d,
+         SUM(CASE WHEN checked_at >= datetime('now', '-24 hours') AND response_time_ms IS NOT NULL THEN response_time_ms ELSE 0 END) AS resp_sum_24h,
+         SUM(CASE WHEN checked_at >= datetime('now', '-24 hours') AND response_time_ms IS NOT NULL THEN 1 ELSE 0 END) AS resp_cnt_24h
+       FROM checks
+       WHERE checked_at >= datetime('now', '-2160 hours')
+       GROUP BY monitor_id`
+    )
+    .all<{
+      monitor_id: number;
+      total_24h: number; up_24h: number;
+      total_7d: number; up_7d: number;
+      total_30d: number; up_30d: number;
+      total_90d: number; up_90d: number;
+      resp_sum_24h: number; resp_cnt_24h: number;
+    }>();
+
+  const map = new Map<number, UptimeAggregate>();
+  for (const r of results ?? []) {
+    map.set(r.monitor_id, {
+      uptime24h: pct(r.up_24h, r.total_24h),
+      uptime7d: pct(r.up_7d, r.total_7d),
+      uptime30d: pct(r.up_30d, r.total_30d),
+      uptime90d: pct(r.up_90d, r.total_90d),
+      avgResponseMs: r.resp_cnt_24h > 0 ? Math.round(r.resp_sum_24h / r.resp_cnt_24h) : null,
+    });
+  }
+  return map;
+}
+
+/** Daily history for every monitor, anchored on "now", in one pass over `checks`. Only valid
+ * for enabled monitors — see getUptimeAggregatesBatch. */
+async function getDailyHistoryBatch(
+  db: D1Database,
+  days: number
+): Promise<Map<number, Map<string, { total: number; up: number }>>> {
+  const { results } = await db
+    .prepare(
+      `SELECT monitor_id, date(checked_at) AS date, COUNT(*) AS total, SUM(success) AS up
+       FROM checks
+       WHERE checked_at >= datetime('now', '-' || ? || ' days')
+       GROUP BY monitor_id, date(checked_at)`
+    )
+    .bind(days)
+    .all<{ monitor_id: number; date: string; total: number; up: number }>();
+
+  const map = new Map<number, Map<string, { total: number; up: number }>>();
+  for (const r of results ?? []) {
+    if (!map.has(r.monitor_id)) map.set(r.monitor_id, new Map());
+    map.get(r.monitor_id)!.set(r.date, { total: r.total, up: r.up });
+  }
+  return map;
+}
+
+function fillDailyHistory(
+  byDate: Map<string, { total: number; up: number }>,
+  days: number
+): DailyHistoryEntry[] {
+  const history: DailyHistoryEntry[] = [];
+  const referenceDate = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(referenceDate);
+    d.setUTCDate(d.getUTCDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const row = byDate.get(dateStr);
+    history.push({
+      date: dateStr,
+      total: row?.total ?? 0,
+      up: row?.up ?? 0,
+      uptime_pct: row && row.total > 0 ? Math.round((row.up / row.total) * 10000) / 100 : null,
+    });
+  }
+  return history;
+}
+
+/**
+ * Status for every monitor in a fixed number of queries regardless of monitor count. Enabled
+ * monitors share a single "now" anchor and are served entirely from three batched queries; paused
+ * monitors need their own frozen anchor (their last check time — see getMonitorStatus) and fall
+ * back to the original per-monitor queries, but there are normally only a handful of those.
+ */
 export async function getAllMonitorStatuses(db: D1Database): Promise<MonitorStatus[]> {
   const monitors = await listMonitors(db);
-  return Promise.all(monitors.map((m) => getMonitorStatus(db, m)));
+  if (monitors.length === 0) return [];
+
+  const [latestMap, aggMap, historyMap] = await Promise.all([
+    getLatestChecksBatch(db),
+    getUptimeAggregatesBatch(db),
+    getDailyHistoryBatch(db, HISTORY_DAYS),
+  ]);
+
+  return Promise.all(
+    monitors.map(async (monitor) => {
+      if (!monitor.enabled) return getMonitorStatus(db, monitor);
+
+      const latest = latestMap.get(monitor.id) ?? null;
+      const agg = aggMap.get(monitor.id);
+      const history = fillDailyHistory(historyMap.get(monitor.id) ?? new Map(), HISTORY_DAYS);
+
+      return {
+        monitor,
+        latest: latest
+          ? {
+              success: !!latest.success,
+              checked_at: latest.checked_at,
+              response_time_ms: latest.response_time_ms,
+              status_code: latest.status_code,
+              error: latest.error,
+            }
+          : null,
+        uptime24h: agg?.uptime24h ?? null,
+        uptime7d: agg?.uptime7d ?? null,
+        uptime30d: agg?.uptime30d ?? null,
+        uptime90d: agg?.uptime90d ?? null,
+        avgResponseMs: agg?.avgResponseMs ?? null,
+        history,
+      };
+    })
+  );
 }
 
 /** Groups `downTotal` failing checks into a handful of contiguous outage windows within

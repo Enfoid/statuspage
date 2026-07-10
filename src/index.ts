@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   clearIgnoredIfUp,
   createMonitor,
@@ -93,28 +93,52 @@ function extraCssFor(c: { req: { header(name: string): string | undefined } }): 
   return host === "defunct.stream" || host.endsWith(".defunct.stream") ? DEFUNCT_STREAM_CSS : null;
 }
 
-app.get("/", async (c) => {
-  const tag = c.req.query("tag")?.trim().toLowerCase() || null;
-  const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
-  const filtered = filterByTag(statuses, tag);
-  const title = tag ? `${tagDisplayName(filtered, tag) ?? tag} Uptimes` : "EnFoid Uptimes";
-  return c.html(
-    renderStatusPage(filtered, {
-      title,
-      activeTag: tag,
-      hasAnyMonitors: statuses.length > 0,
-      extraCss: extraCssFor(c),
-    })
-  );
-});
+// Stats only actually change once per cron tick (see the `crons` trigger in wrangler.toml), so
+// there's no point recomputing them on every hit to these two public, cacheable-by-URL routes.
+// Edge-caching them means most requests never invoke the Worker (let alone D1) at all, which is
+// what actually keeps CPU time down under real traffic — see CLAUDE.md for the incident this
+// fixed. Kept well under the 1-minute cron interval so the page never looks more than one tick
+// (plus this) stale.
+const STATUS_CACHE_TTL_SECONDS = 30;
+
+async function withEdgeCache(c: Context<{ Bindings: Env }>, build: () => Promise<Response>): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(c.req.url, c.req.raw);
+  const cached = await cache.match(cacheKey);
+  if (cached) return cached;
+
+  const response = await build();
+  response.headers.set("Cache-Control", `public, max-age=${STATUS_CACHE_TTL_SECONDS}`);
+  c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
+}
+
+app.get("/", async (c) =>
+  withEdgeCache(c, async () => {
+    const tag = c.req.query("tag")?.trim().toLowerCase() || null;
+    const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
+    const filtered = filterByTag(statuses, tag);
+    const title = tag ? `${tagDisplayName(filtered, tag) ?? tag} Uptimes` : "EnFoid Uptimes";
+    return c.html(
+      renderStatusPage(filtered, {
+        title,
+        activeTag: tag,
+        hasAnyMonitors: statuses.length > 0,
+        extraCss: extraCssFor(c),
+      })
+    );
+  })
+);
 
 app.get("/admin", (c) => c.html(renderAdminPage({ extraCss: extraCssFor(c) })));
 
-app.get("/api/status", async (c) => {
-  const tag = c.req.query("tag")?.trim().toLowerCase() || null;
-  const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
-  return c.json(filterByTag(statuses, tag));
-});
+app.get("/api/status", async (c) =>
+  withEdgeCache(c, async () => {
+    const tag = c.req.query("tag")?.trim().toLowerCase() || null;
+    const statuses = (await getAllMonitorStatuses(c.env.DB)).map(toPublicStatus);
+    return c.json(filterByTag(statuses, tag));
+  })
+);
 
 // Unauthenticated on purpose (for a simple internal dashboard fetch), but intentionally not
 // linked from any UI or documented publicly. Unlike /api/status, includes the host/target.
