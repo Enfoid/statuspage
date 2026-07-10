@@ -1,5 +1,21 @@
-# Status Tracker
+# Poor Man's Uptime/Status Tracker
 
+## Quick Disclaimer:
+This was made for a single worker, but since this may be useful for others its public now,
+because of the single use-nature, the database, some Names and a handful other things may be hardcoded on some places.
+just fork it, and change the names accordingly and you good to go.
+
+## Claude Sonnet 4.6 was used to deploy
+i could not be arsed to figure out how this works (i'm a Digitalocean Apps guy)
+
+using Cloudflare workers for this specific application comes with the financial advantage of $0/Month,
+as long you stay below the limits, where the only true limit to worry about is the CPU time,
+as long waiting times and large numbers of monitors can cause some hangups, wich will lead to long CPU times.
+the batching fixed most of it, so you should be good for about 50 Monitors.
+
+An example page can be found under [https://status.defunct.stream](https://status.defunct.stream)
+
+## Summary
 Internal uptime/status tracker that runs entirely on Cloudflare Workers (public status page +
 protected admin UI + a cron-driven checker), styled with Bootstrap 5. No external server or
 database is required beyond Cloudflare D1.
