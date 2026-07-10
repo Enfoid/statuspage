@@ -11,8 +11,8 @@ i could not be arsed to figure out how this works (i'm a Digitalocean Apps guy)
 using Cloudflare workers for this specific application comes with the **financial advantage of $0/Month**.
 
 As long you stay below the limits, where the only true limit to worry about is the CPU time,
-long waiting times and large monitor count can cause some hangups, wich will lead to long CPU times.
-the batching fixed most of it, so you should be good for about 50+ Monitors.
+long waiting times and large monitor count can cause some hangups, wich will lead to long CPU times,
+the [batching](https://github.com/Enfoid/statuspage/commit/eb6d042b5d0afda27a7aefbb3cc55f1708c8ff00) fixed most of it, so you should be good for about 50+ Monitors.
 
 Another example page can be found under [https://status.defunct.stream](https://status.defunct.stream)
 
