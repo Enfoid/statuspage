@@ -8,10 +8,11 @@ just fork it, and change the names accordingly and you good to go.
 ## Claude Sonnet 4.6 was used to deploy
 i could not be arsed to figure out how this works (i'm a Digitalocean Apps guy)
 
-using Cloudflare workers for this specific application comes with the financial advantage of $0/Month,
-as long you stay below the limits, where the only true limit to worry about is the CPU time,
-as long waiting times and large numbers of monitors can cause some hangups, wich will lead to long CPU times.
-the batching fixed most of it, so you should be good for about 50 Monitors.
+using Cloudflare workers for this specific application comes with the financial advantage of $0/Month.
+
+As long you stay below the limits, where the only true limit to worry about is the CPU time,
+long waiting times and large monitor count can cause some hangups, wich will lead to long CPU times.
+the batching fixed most of it, so you should be good for about 50+ Monitors.
 
 An example page can be found under [https://status.defunct.stream](https://status.defunct.stream)
 
