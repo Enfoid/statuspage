@@ -5,3 +5,4 @@ node_modules/
 dist/
 .cf-token
 .claude/
+CLAUDE.md

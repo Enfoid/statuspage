@@ -196,7 +196,7 @@ complete that flow, authenticate with a scoped API token instead:
 
 **Alternative: Cloudflare Git integration ("Workers Builds")** — if you'd rather have Cloudflare
 auto-deploy on every push, connect this repo from the dashboard: **Workers & Pages → statuspage →
-Settings → Builds → Connect**, then install the Cloudflare GitHub App against `Enfoid/status`.
+Settings → Builds → Connect**, then install the Cloudflare GitHub App against `Enfoid/statuspage`.
 That setup step requires a browser (GitHub App OAuth install), so it has to be done from the
 dashboard directly rather than from a headless shell. A few things it does *not* do for you:
 - **D1 migrations still aren't automatic.** A new file under `migrations/` (like
