@@ -9,7 +9,7 @@ just fork it, and change the names accordingly and you good to go.
 I could not be arsed to figure out how this works,
 
 plus I'm more a Digitalocean Apps guy, mainly because of the ease of use and the limited [vendor locking](https://0x8.in.th/avoiding-vendor-lock).
-however in this specific application, Cloudflare workers come with the **financial advantage of $0/Month**.
+However in this specific application, Cloudflare workers come with the unique **financial advantage of $0/Month**.
 
 As long you stay below the limits, where the only true limit to worry about is the CPU time,
 long waiting times and large monitor count can cause some hangups, wich will lead to long CPU times,
